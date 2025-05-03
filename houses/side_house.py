@@ -799,6 +799,49 @@ class SideHouse:
         full = {c: [] for c in houses}
         full.update(adj)
         return full
+    
+    # ────────────────────────────────────────────────────────────────
+    #  Skip / prune overlapping houses
+    # ────────────────────────────────────────────────────────────────
+    def drop_overlapping_houses(
+        self,
+        houses: dict | None = None,
+        *,
+        area_tol: float = 1e-6,
+    ) -> dict:
+        """
+        Return a *new* dict that contains **only** houses that do **not** overlap.
+
+        Parameters
+        ----------
+        houses   : dict  {center : vertices}.
+                   • If *None* (default) the method uses `self.houses`.
+        area_tol : float Intersection area threshold that counts as “overlap”.
+
+        Notes
+        -----
+        •  When two houses overlap, *both* are removed.  
+           (If you prefer “keep the first” or “keep the larger one” you can
+           tweak the logic – see the comment inside.)
+        """
+        if houses is None:
+            if getattr(self, "houses", None) is None:
+                raise ValueError("No house data – run the pipeline first or pass a dict.")
+            houses = self.houses
+
+        # who overlaps whom?
+        conflict_map = self.overlap_dict(houses, area_tol=area_tol,
+                                         drop_solo=True)
+
+        offenders = set(conflict_map.keys())         # every house that clashes
+        # -------- OPTION: pick one to survive instead of killing both ---------
+        # e.g. “keep the first you encounter”:
+        # for c, neighbours in conflict_map.items():
+        #     offenders.update(neighbours)            # <-- comment this line
+        # ---------------------------------------------------------------------
+
+        return {c: v for c, v in houses.items() if c not in offenders}
+
 
     # ───── Pipeline Methods ─────
 
@@ -897,6 +940,8 @@ class SideHouse:
         # Merge both sets of houses into a single dictionary.
         # additional_houses
         all_houses = {**houses, **additional_houses}
+
+        all_houses = self.drop_overlapping_houses(all_houses, area_tol=1e-6)
 
         self.houses = all_houses
         return all_houses

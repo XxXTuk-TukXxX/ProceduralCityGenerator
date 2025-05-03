@@ -2,71 +2,129 @@
 import random
 import numpy as np
 import matplotlib.pyplot as plt
-from shapely.geometry.polygon import orient   # ← NEW
-from shapely.geometry import Polygon, LineString
+from shapely.geometry.polygon import orient
+from shapely.geometry import Polygon
 from matplotlib.patches import Polygon as MplPoly
-from area import Area
-from territory import Territory
-from houses.side_house import SideHouse
+
+from area        import Area
+from territory   import Territory
+from houses.side_house   import SideHouse
+from houses.center_region import CenterRegion          # ← NEW
+
+# ─── Helper ────────────────────────────────────────────────────────────────────
+def random_hex_color() -> str:
+    """Return a random hex colour, e.g.  '#3f7ab9'."""
+    return f"#{random.randint(0, 0xFFFFFF):06x}"
+
 
 # ─── main() ────────────────────────────────────────────────────────────────────
-def main():
-    def random_hex_color():
-        return "#{:06x}".format(random.randint(0, 0xFFFFFF))
-    
-    # --- Generate the Area (Polygon) ------------------------------------------
-    area = Area()
-    territory = Territory(area)
-    points = area.generate_poisson_disk_points()
+def main() -> None:
+
+    # 1️⃣  Build the Voronoi‐like regions you already have
+    area       = Area()
+    territory  = Territory(area)
+    points     = area.generate_poisson_disk_points()
     territory.generate_territory(points)
-    regions = territory.get_regions()
-    
-    # Force the ring to be counter-clockwise; keeps “inward” pointing inward
-    fig, ax = plt.subplots(figsize=(10, 10))
+    regions    = territory.get_regions()
+
+    # 2️⃣  Go through every region and decorate it with houses
     for region in regions:
-        poly            = orient(region, sign=1.0)          # 1.0 ⇒ CCW
-        vertices        = np.array(poly.exterior.coords[:-1], dtype=float)
-        vertices_closed = np.vstack([vertices, vertices[0]])
-        # ───────────────────────────────────────────────────────────────────────────
-        
-        # (the rest of your pipeline is unchanged)
-        plt.plot(vertices_closed[:, 0], vertices_closed[:, 1],
-                'b-', linewidth=2, label='Area Polygon')
+        fig, ax = plt.subplots(figsize=(10, 10))
 
-        side_houses = SideHouse(vertices_closed)
-        side_houses.initialise_vertex_houses(
-            randomize_size=True, min_size=5, max_size=10, overlap_threshold=90)
-            
+        # ——— region polygon (force CCW so “inward” is consistent)
+        poly             = orient(region, sign=1.0)            # 1.0 ⇒ CCW
+        vertices         = np.asarray(poly.exterior.coords[:-1], dtype=float)
+        vertices_closed  = np.vstack([vertices, vertices[0]])
 
-        polygon_vertices = [tuple(v) for v in vertices]
-        ordered_houses = side_houses.get_ordered_vertex_houses(polygon_vertices)
+        ax.plot(vertices_closed[:, 0], vertices_closed[:, 1],
+                'tab:blue', linewidth=2, label='Area Polygon')
 
-        all_houses = side_houses.get_side_and_vertex_houses(polygon_vertices, ordered_houses)
+        # ——— generate *side houses* along the boundary
+        sh = SideHouse(vertices_closed)
+        sh.initialise_vertex_houses(randomize_size=True,
+                                    min_size=5, max_size=10,
+                                    overlap_threshold=90)
 
-        overlap_map = side_houses.overlap_dict(all_houses, area_tol=1e-6)
-        overlapping_keys = set(overlap_map.keys())
+        polygon_vertices = [tuple(v) for v in vertices]         # drop the closing pt
+        ordered_houses   = sh.get_ordered_vertex_houses(polygon_vertices)
+        all_houses       = sh.get_side_and_vertex_houses(polygon_vertices,
+                                                         ordered_houses)
 
-        rand_edge_color = random_hex_color()
+        # ——— mark overlapping houses (they will be skipped here)
+        overlap_map      = sh.overlap_dict(all_houses, area_tol=1e-6)
+        overlapping_keys = set(overlap_map)
 
-        # ───────────── draw every side house ───────────────
-        for idx, (center, house) in enumerate(all_houses.items()):
-            poly_coords = house + [house[0]]             # close the ring
-            xs, ys = zip(*poly_coords)
+        # ——— draw every *non-overlapping* side house
+        edge_colour = random_hex_color()
+        # ---------------- draw every remaining (non-overlapping) side-house ------------
+        for idx, house in enumerate(all_houses.values()):
+            ring = house + [house[0]]
+            xs, ys = zip(*ring)
+            ax.plot(xs, ys, color=edge_colour, linewidth=2,
+                    label='Side House' if idx == 0 else "")
 
-            if center in overlapping_keys:              
-                # filled, solid red
-                # ax.add_patch(MplPoly(poly_coords, closed=True,
-                #                     facecolor="red", edgecolor="red", alpha=0.6,
-                #                     label='Overlapping House' if idx == 0 else ""))
-                continue
-            else:
-                # your previous look: outline only, random colour
-                ax.plot(xs, ys, color=rand_edge_color, linewidth=2,
-                        label='Additional House' if idx == 0 else "")
 
-    plt.title('City Generator: Area with Houses')
-    plt.xlabel('X'); plt.ylabel('Y')
-    plt.grid(True); plt.axis('equal'); plt.legend(); plt.show()
+        # # ——— NEW: build the interior outline that dodges the houses
+        # cr = CenterRegion(vertices_closed, all_houses, clearance=1.0)
+        # for r_idx, ring in enumerate(cr.rings()):
+        #     print(ring)
+        #     xs, ys = zip(*ring)
+        #     ax.plot(xs, ys,
+        #             color="lime", lw=2.5,
+        #             label="Interior Outline" if r_idx == 0 else "")
 
+    # fig, ax = plt.subplots(figsize=(10, 10))
+    # # ——— region polygon (force CCW so “inward” is consistent)
+    # poly             = orient(regions[0], sign=1.0)            # 1.0 ⇒ CCW
+    # vertices         = np.asarray(poly.exterior.coords[:-1], dtype=float)
+    # vertices_closed  = np.vstack([vertices, vertices[0]])
+
+    # ax.plot(vertices_closed[:, 0], vertices_closed[:, 1],
+    #         'tab:blue', linewidth=2, label='Area Polygon')
+
+    # # ——— generate *side houses* along the boundary
+    # sh = SideHouse(vertices_closed)
+    # sh.initialise_vertex_houses(randomize_size=True,
+    #                             min_size=5, max_size=10,
+    #                             overlap_threshold=90)
+
+    # polygon_vertices = [tuple(v) for v in vertices]         # drop the closing pt
+    # ordered_houses   = sh.get_ordered_vertex_houses(polygon_vertices)
+    # all_houses       = sh.get_side_and_vertex_houses(polygon_vertices,
+    #                                                     ordered_houses)
+
+    # # ——— mark overlapping houses (they will be skipped here)
+    # overlap_map      = sh.overlap_dict(all_houses, area_tol=1e-6)
+    # overlapping_keys = set(overlap_map)
+
+    # # ——— draw every *non-overlapping* side house
+    # edge_colour = random_hex_color()
+    # # ---------------- draw every remaining (non-overlapping) side-house ------------
+    # for idx, house in enumerate(all_houses.values()):
+    #     ring = house + [house[0]]
+    #     xs, ys = zip(*ring)
+    #     ax.plot(xs, ys, color=edge_colour, linewidth=2,
+    #             label='Side House' if idx == 0 else "")
+
+
+    # # ——— NEW: build the interior outline that dodges the houses
+    # cr = CenterRegion(vertices_closed, all_houses, clearance=1.0)
+    # for r_idx, ring in enumerate(cr.rings()):
+    #     print(ring)
+    #     xs, ys = zip(*ring)
+    #     ax.plot(xs, ys,
+    #             color="lime", lw=2.5,
+    #             label="Interior Outline" if r_idx == 0 else "")
+
+        # —— cosmetics for this region
+        ax.set_aspect('equal', 'box')
+        ax.set_title('City Generator: Area with Houses')
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.grid(True)
+        ax.legend(loc='upper right')
+        plt.show()               # or comment out to draw all on one figure
+
+# ─── run ───────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     main()
