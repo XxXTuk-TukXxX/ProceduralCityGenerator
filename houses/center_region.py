@@ -104,31 +104,3 @@ class CenterRegion:
                 all_rings += extract(poly)
 
         return all_rings
-
-    # convenient quick-plot ---------------------------------------------------
-    def plot(
-        self,
-        ax: plt.Axes | None = None,
-        *,
-        facecolor: str = "none",
-        edgecolor: str = "lime",
-        linewidth: float = 2,
-        alpha: float | None = None,
-        label: str = "Interior outline",
-    ) -> plt.Axes:
-        """
-        Draw the outline (like the green one in your sketch).
-        """
-        if ax is None:
-            fig, ax = plt.subplots(figsize=(8, 8))
-
-        for ring in self.rings():
-            ax.add_patch(
-                MplPoly(ring, closed=True,
-                        facecolor=facecolor, edgecolor=edgecolor,
-                        linewidth=linewidth, alpha=alpha, label=label)
-            )
-            label = ""                        # only first gets legend entry
-
-        ax.set_aspect("equal", "box")
-        return ax
