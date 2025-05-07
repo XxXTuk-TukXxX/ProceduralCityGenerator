@@ -1,15 +1,15 @@
 # houses/center_house.py
 # ─────────────────────────────────────────────────────────────────────
 from __future__ import annotations
-from typing import List, Tuple
+from typing import Iterable, List, Tuple
 import numpy as np
-from shapely.geometry import Polygon
+from shapely.geometry import Point, LineString, box, Polygon, MultiPolygon
+from shapely.ops import unary_union
 import matplotlib.pyplot as plt
 
 
 Coord = Tuple[float, float]
 Ring  = List[Coord]
-
 
 class CenterHouse:
     """
@@ -35,7 +35,85 @@ class CenterHouse:
         self.outline_ring: Ring    = ring
         self.outline_poly: Polygon = Polygon(ring).buffer(0)   # cached shapely
 
-        
+    # ───────── new grid-builder ─────────────────────────────────────
+    def build_grid(self, spacing = 5.0, include_edge: bool = True,) -> List[Tuple[float, float]]:
+        """
+        Generate an axis-aligned grid of points that lie inside the outline
+        polygon.
+
+        Parameters
+        ----------
+        spacing : float, optional, default 5.0
+            Requested grid pitch.  Values < 5 are silently promoted to 5.
+        include_edge : bool, optional, default True
+            If *True*, points that fall exactly on the polygon boundary
+            are kept; if *False* they are dropped.
+
+        Returns
+        -------
+        list[(x, y)]
+            Every (x, y) grid node that lies inside (or on) the outline.
+        """
+        # 1. Pick the final spacing ― never smaller than five units
+        h = max(spacing, 5.0)
+
+        # 2. Bounding box of the polygon (minx, miny, maxx, maxy)
+        minx, miny, maxx, maxy = self.outline_poly.bounds
+
+        # 3. Make 1-D arrays of candidate coordinates
+        xs = np.arange(minx, maxx + h * 0.5, h)   # the 0.5 guards against fp error
+        ys = np.arange(miny, maxy + h * 0.5, h)
+
+        # 4. Test every (x, y) against the polygon
+        keep = []
+        poly  = self.outline_poly
+        for x in xs:
+            for y in ys:
+                pt = Point(x, y)
+                if poly.contains(pt) or (include_edge and poly.touches(pt)):
+                    keep.append((x, y))
+
+        return keep
+
+    # ───────── new: build a clipped grid outline ────────────────────
+    @staticmethod
+    def grid_outline_from_points(grid_pts : Iterable[Tuple[float, float]], spacing = 5.0,) -> Polygon | MultiPolygon:
+        """
+        Given a set of *existing* grid nodes, build the outline that encloses
+        every h×h square lattice cell whose four corner points are present.
+
+        Parameters
+        ----------
+        grid_pts : iterable[(x, y)]
+            The grid nodes (typically the result of `CenterHouse.build_grid`).
+        spacing  : float, default 5.0
+            Grid pitch h.  Values < 5 are promoted to 5.
+
+        Returns
+        -------
+        shapely.Polygon or shapely.MultiPolygon
+            The lattice-aligned outline of the filled grid region.
+        """
+        h = max(spacing, 5.0)                 # never tighter than 5
+        nodes = {(float(x), float(y)) for x, y in grid_pts}
+        if not nodes:
+            return Polygon()                  # nothing to outline
+
+        # test each node as the *bottom-left* corner of a full cell
+        tiles: List[Polygon] = []
+        for x, y in nodes:
+            if (
+                (x + h, y)     in nodes and
+                (x,     y + h) in nodes and
+                (x + h, y + h) in nodes
+            ):
+                tiles.append(box(x, y, x + h, y + h))
+
+        if not tiles:
+            return Polygon()                  # degenerate case
+
+        # boolean OR → one solid footprint; buffer(0) fixes tiny artefacts
+        return unary_union(tiles).buffer(0)
 
 
 # ─── quick demo ───────────────────────────────────────────────────────────────
@@ -52,11 +130,29 @@ if __name__ == "__main__":
     # Initialise CenterHouse
     ch = CenterHouse(demo_ring)
 
-    # Plot the ring outline
+    # --- new: build grid -----------------------------------------------
+    grid_xy = ch.build_grid(spacing=5)      # or any larger pitch
+    gx, gy = zip(*grid_xy)                # unpack for plotting
+    grid_outline = CenterHouse.grid_outline_from_points(grid_xy, spacing=5)
+
+    # --- plotting -------------------------------------------------------
     xs, ys = zip(*ch.outline_ring)
     fig, ax = plt.subplots(figsize=(6, 6))
+
+    # outline
     ax.plot(xs, ys, color="lime", linewidth=2.5, label="CenterHouse outline")
+
+    # grid points
+    ax.scatter(gx, gy, marker=".", s=15, color="dodgerblue", label="grid nodes")
+
+    for poly in (grid_outline.geoms
+             if grid_outline.geom_type == "MultiPolygon"
+             else [grid_outline]):
+        x, y = poly.exterior.xy
+        ax.plot(x, y, lw=2, color="magenta", label="grid outline")
+
+    # cosmetics
     ax.set_aspect("equal", "box")
-    ax.set_title("Demo – CenterHouse stores & plots the outline ring")
+    ax.set_title("Demo – CenterHouse outline + interior grid")
     ax.legend()
     plt.show()
