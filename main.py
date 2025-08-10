@@ -17,7 +17,9 @@ import random
 from pathlib import Path
 from typing import List, Tuple
 from math import copysign
+from HouseGen.detail.windows import *
 from HouseGen.roof.gaben import *
+from HouseGen.layout.roof_placement_area import roof_areas
 
 # ────────────────────────────────────────────────────────────────
 # 1.  Choose how many floors and their heights
@@ -290,7 +292,9 @@ def plot_frame(
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     # ❶ Define your building site (rectangle from your original prompt)
-    house_area = [[(31, -80), (31, -64), (15, -64), (15, -80), (31, -80)], [(15.0, -80.0), (15.0, -64.0), (31.0, -64.0), (31.0, -73.0), (24.0, -73.0), (24.0, -80.0), (15.0, -80.0)], [(15.0, -64.0), (31.0, -64.0), (31.0, -73.0), (15.0, -73.0), (15.0, -64.0)]]
+    house_area = [[(31, -80), (31, -64), (15, -64), (15, -80), (31, -80)], 
+                  [(15.0, -80.0), (15.0, -64.0), (31.0, -64.0), (31.0, -73.0), (24.0, -73.0), (24.0, -80.0), (15.0, -80.0)],
+                    [(15.0, -64.0), (31.0, -64.0), (31.0, -73.0), (15.0, -73.0), (15.0, -64.0)]]
 
     # ❷ Decide floor heights (reproducible because we set a seed)
     heights = generate_floor_heights(seed=44)
@@ -303,18 +307,26 @@ if __name__ == "__main__":
     outline_cmds = build_inner_outline_commands(house_area, heights, y_base=y0)
 
     roof_y = y0 + sum(heights)          # same y you passed to outline
-    last_footprint = house_area[-1]              # topmost storey
+    # last_footprint = house_area[-1]              # topmost storey
+    footprint = roof_areas(house_area)
+    last_footprint = footprint[-1]
     roof_cmds = build_roof_commands(last_footprint, roof_y)
     gable_cmds = build_gable_fill_commands(last_footprint, roof_y)
     overhang_cmds1 = build_side_eave_overhang_commands(last_footprint, roof_y)
     overhang_cmds2 = build_gable_overhang_commands(last_footprint, roof_y)
     roof_cmds = roof_cmds + gable_cmds + overhang_cmds1 + overhang_cmds2
 
-    cmds = frame_cmds + outline_cmds + roof_cmds # combine everything
 
-    out_path = save_mcfunction(cmds)
-    print(f"Saved {len(cmds):,} commands to {out_path}")
 
-    # ❹ Optional preview
-    plot_frame(house_area, heights)
+    window_cmds = build_window_frames(house_area, heights, y0)
+    windows = build_window_panes(house_area, heights, y0, skip_floors=[1])
+    trim = build_window_trim_frameplane(house_area, heights, y_base=y0)
+    detail = build_window_greenery(house_area, heights, y_base=y0, skip_floors=[1])
 
+    cmds = frame_cmds + outline_cmds + roof_cmds + window_cmds + windows + trim + detail # combine everything
+
+    # out_path = save_mcfunction(cmds)
+    # print(f"Saved {len(cmds):,} commands to {out_path}")
+
+    # # ❹ Optional preview
+    # plot_frame(house_area, heights)
